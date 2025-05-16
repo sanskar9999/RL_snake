@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Snake Competition - JS</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #111;
+            font-family: Arial, sans-serif;
+            color: white;
+        }
+        canvas {
+            border: 1px solid #333;
+            background-color: black; /* Pygame's BLACK */
+        }
+        #controlsContainer {
+            position: relative; /* For positioning the button and panel */
+        }
+        #infoButton {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1001; /* Ensure it's above canvas, below panel if panel is modal */
+        }
+        #paramsPanel {
+            display: none; /* Hidden by default */
+            position: fixed;
+            bottom: 70px; /* Above the info button */
+            right: 20px;
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            z-index: 1000;
+            color: white;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        #paramsPanel h3 {
+            margin-top: 0;
+            color: #00aaff;
+        }
+        #paramsPanel label {
+            display: block;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+        #paramsPanel input[type="number"] {
+            width: 80px;
+            padding: 5px;
+            margin-top: 3px;
+            background-color: #333;
+            color: white;
+            border: 1px solid #555;
+            border-radius: 4px;
+        }
+        #paramsPanel .snake-params {
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px dashed #555;
+        }
+        #paramsPanel .snake-params:last-child {
+            border-bottom: none;
+        }
+        #applyParamsButton, #closeParamsButton {
+            margin-top: 15px;
+            padding: 8px 15px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        #applyParamsButton:hover, #closeParamsButton:hover {
+            background-color: #0056b3;
+        }
+        .score-display {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background-color: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        .stats-display {
+            position: absolute;
+            bottom: 10px; /* Adjusted to make space for button */
+            right: 70px; /* Adjusted to make space for button */
+            background-color: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            text-align: right;
+        }
+        .overall-best-display {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            background-color: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        .death-messages {
+            position: absolute;
+            top: 50px;
+            right: 10px;
+            background-color: rgba(0,0,0,0.7);
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+        .health-bar-container {
+            position: absolute;
+            top: 230px; /* Approximate from Pygame layout */
+            right: 10px; /* Approximate from Pygame layout */
+            width: 100px;
+            text-align: center;
+        }
+        .health-bar-outer {
+            width: 100px;
+            height: 10px;
+            background-color: red;
+            border: 1px solid #555;
+            margin-top: 5px;
+        }
+        .health-bar-inner {
+            height: 100%;
+            background-color: limegreen;
+            width: 100%; /* Will be set by JS */
+        }
+
+    </style>
+</head>
+<body>
+    <div id="controlsContainer">
+        <canvas id="gameCanvas"></canvas>
+        <!-- Score, stats, etc., will be drawn on canvas or overlaid with absolute positioned divs -->
+    </div>
+
+    <button id="infoButton">?</button>
+
+    <div id="paramsPanel">
+        <h3>AI Parameters</h3>
+        <div id="snakeParamsForms">
+            <!-- Forms will be generated by JS -->
+        </div>
+        <button id="applyParamsButton">Apply</button>
+        <button id="closeParamsButton">Close</button>
+    </div>
+
+    <script>
+        // --- Constants ---
+        const SCREEN_WIDTH = 1280;
+        const SCREEN_HEIGHT = 720;
+        const GRID_SIZE = 10;
+        const GRID_WIDTH = SCREEN_WIDTH / GRID_SIZE;
+        const GRID_HEIGHT = SCREEN_HEIGHT / GRID_SIZE;
+
+        const BLACK = 'rgb(0, 0, 0)';
+        const WHITE = 'rgb(255, 255, 255)';
+        const RED = 'rgb(255, 0, 0)';
+        const GRID_COLOR = 'rgb(10, 10, 10)';
+        const SNAKE1_COLOR = 'rgb(0, 255, 0)';    // Green (o)
+        const SNAKE2_COLOR = 'rgb(0, 0, 255)';    // Blue (o1)
+        const SNAKE3_COLOR = 'rgb(255, 255, 0)';  // Yellow (o2)
+        const SNAKE4_COLOR = 'rgb(255, 0, 255)';  // Magenta (o3)
+
+        const UP = { x: 0, y: -1 };
+        const DOWN = { x: 0, y: 1 };
+        const LEFT = { x: -1, y: 0 };
+        const RIGHT = { x: 1, y: 0 };
+        const DIRECTIONS = [UP, DOWN, LEFT, RIGHT];
+
+
+        const RESPAWN_TIME = 100; // In frames
+
+        // Global best parameters (can be updated by the game)
+        let global_best_o1 = { score: 78, food_weight: 0.84, safety_weight: 0.47, look_ahead: 3, aggression: 0.50 };
+        let global_best_o2 = { score: 6054, food_weight: 0.10, safety_weight: 4.80, look_ahead: 10, aggression: 1.35 };
+        let global_best_o3 = { score: 3946, food_weight: 0.10, safety_weight: 4.89, look_ahead: 10, aggression: 1.58 };
+
+        let best_snake_overall = { snake: 'SnakeO2', score: 6054, food_weight: 0.10, safety_weight: 4.80, look_ahead: 10, aggression: 1.35 };
+
+        // --- Utility Functions ---
+        function randomUniform(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        function randomInt(min, max) {
+            return Math.floor(Math.random() * (max - min + 1)) + min;
+        }
+
+        function randomChoice(arr) {
+            return arr[Math.floor(Math.random() * arr.length)];
+        }
+
+        // --- Classes ---
+
+        class SnakeO {
+            constructor(snake_id, start_position, start_direction, color) {
+                this.snake_id = snake_id;
+                this.name = "O";
+                this.positions = [start_position];
+                this.length = 5;
+                this.direction = start_direction;
+                this.score = 0;
+                this.color = color;
+                this.alive = true;
+                this.move_cooldown = 0;
+                this.respawn_counter = 0;
+            }
+
+            get_head_position() {
+                return this.positions[0];
+            }
+
+            update(other_snakes_positions) {
+                if (!this.alive) {
+                    if (this.respawn_counter > 0) {
+                        this.respawn_counter -= 1;
+                        if (this.respawn_counter === 0) {
+                            this.reset();
+                        }
+                    }
+                    return [];
+                }
+
+                if (this.move_cooldown > 0) {
+                    this.move_cooldown -= 1;
+                }
+
+                const head = this.get_head_position();
+                const new_position = {
+                    x: (head.x + this.direction.x + GRID_WIDTH) % GRID_WIDTH,
+                    y: (head.y + this.direction.y + GRID_HEIGHT) % GRID_HEIGHT
+                };
+
+                let collided = false;
+                let food_to_spawn = [];
+
+                // Check self collision
+                for (let i = 1; i < this.positions.length; i++) {
+                    if (this.positions[i].x === new_position.x && this.positions[i].y === new_position.y) {
+                        collided = true;
+                        break;
+                    }
+                }
+                // Check collision with other snakes
+                if (!collided) {
+                    for (const pos of other_snakes_positions) {
+                        if (pos.x === new_position.x && pos.y === new_position.y) {
+                            collided = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (collided) {
+                    const food_count = Math.max(Math.floor(this.length / 2), 1);
+                    for (let i = 0; i < food_count; i++) {
+                        if (i < this.positions.length) {
+                            food_to_spawn.push({...this.positions[i]});
+                        }
+                    }
+                    this.alive = false;
+                    this.respawn_counter = RESPAWN_TIME;
+                    this.score -= 10;
+                    return food_to_spawn;
+                }
+
+                this.positions.unshift(new_position);
+                if (this.positions.length > this.length) {
+                    this.positions.pop();
+                }
+                return [];
+            }
+
+            reset() {
+                this.positions = [{ x: Math.floor(GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }];
+                this.direction = RIGHT;
+                this.length = 5;
+                this.alive = true;
+                // Score is not reset, it's persistent for this snake type
+            }
+
+            ai_move(food_positions, other_snakes_positions, other_snakes_heads) {
+                if (!this.alive || this.move_cooldown > 0) {
+                    return;
+                }
+
+                const head = this.get_head_position();
+                let nearest_food = null;
+                let min_dist = Infinity;
+
+                if (food_positions.length > 0) {
+                    food_positions.forEach(f => {
+                        const dist = Math.abs(head.x - f.x) + Math.abs(head.y - f.y);
+                        if (dist < min_dist) {
+                            min_dist = dist;
+                            nearest_food = f;
+                        }
+                    });
+                }
+
+                let possible_directions = [];
+                if (nearest_food) {
+                    let dx = nearest_food.x - head.x;
+                    let dy = nearest_food.y - head.y;
+
+                    // Handle wrap-around for distance calculation (optional but good)
+                    if (Math.abs(dx) > GRID_WIDTH / 2) dx = dx > 0 ? dx - GRID_WIDTH : dx + GRID_WIDTH;
+                    if (Math.abs(dy) > GRID_HEIGHT / 2) dy = dy > 0 ? dy - GRID_HEIGHT : dy + GRID_HEIGHT;
+
+                    if (Math.abs(dx) > Math.abs(dy)) {
+                        if (dx > 0 && this.direction !== LEFT) possible_directions.push(RIGHT);
+                        else if (dx < 0 && this.direction !== RIGHT) possible_directions.push(LEFT);
+                        if (dy > 0 && this.direction !== UP) possible_directions.push(DOWN);
+                        else if (dy < 0 && this.direction !== DOWN) possible_directions.push(UP);
+                    } else {
+                        if (dy > 0 && this.direction !== UP) possible_directions.push(DOWN);
+                        else if (dy < 0 && this.direction !== DOWN) possible_directions.push(UP);
+                        if (dx > 0 && this.direction !== LEFT) possible_directions.push(RIGHT);
+                        else if (dx < 0 && this.direction !== RIGHT) possible_directions.push(LEFT);
+                    }
+                } else {
+                     DIRECTIONS.forEach(d => {
+                        if (d.x !== -this.direction.x || d.y !== -this.direction.y) {
+                            possible_directions.push(d);
+                        }
+                    });
+                }
+                 if (possible_directions.length === 0) { // If only option is to reverse, allow it
+                    DIRECTIONS.forEach(d => possible_directions.push(d));
+                }
+
+
+                const safe_directions = [];
+                for (const direction of possible_directions) {
+                    const new_pos = {
+                        x: (head.x + direction.x + GRID_WIDTH) % GRID_WIDTH,
+                        y: (head.y + direction.y + GRID_HEIGHT) % GRID_HEIGHT
+                    };
+                    let is_safe = true;
+                    for (let i = 1; i < this.positions.length; i++) {
+                        if (this.positions[i].x === new_pos.x && this.positions[i].y === new_pos.y) {
+                            is_safe = false; break;
+                        }
+                    }
+                    if (is_safe) {
+                        for (const osp of other_snakes_positions) {
+                            if (osp.x === new_pos.x && osp.y === new_pos.y) {
+                                is_safe = false; break;
+                            }
+                        }
+                    }
+                    if (is_safe) {
+                        safe_directions.push(direction);
+                    }
+                }
+
+                if (safe_directions.length > 0) {
+                    this.direction = safe_directions[0]; // Simple: take the first safe preferred direction
+                } else if (possible_directions.length > 0) {
+                    this.direction = possible_directions[0]; // Or first possible if no safe preferred
+                } else {
+                    // If truly stuck, pick any non-reversing direction
+                    const nonReversing = DIRECTIONS.filter(d => d.x !== -this.direction.x || d.y !== -this.direction.y);
+                    if (nonReversing.length > 0) this.direction = randomChoice(nonReversing);
+                    else this.direction = randomChoice(DIRECTIONS); // Last resort
+                }
+                this.move_cooldown = 1; // Pygame version had 1, meaning move every other frame effectively.
+                                        // For JS, if game loop is fast, might need higher or different logic.
+                                        // Let's assume 1 means it can move next frame if cooldown is 0.
+            }
+
+            render(ctx) {
+                if (!this.alive) return;
+                this.positions.forEach((pos, index) => {
+                    let r = parseInt(this.color.substring(4, this.color.indexOf(',')));
+                    let g = parseInt(this.color.substring(this.color.indexOf(',') + 1, this.color.lastIndexOf(',')));
+                    let b = parseInt(this.color.substring(this.color.lastIndexOf(',') + 1, this.color.indexOf(')')));
+
+                    const current_color = (index === 0) ?
+                        `rgb(${Math.max(0, r - 30)}, ${Math.max(0, g - 30)}, ${Math.max(0, b - 30)})` :
+                        this.color;
+
+                    ctx.fillStyle = current_color;
+                    ctx.fillRect(pos.x * GRID_SIZE, pos.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+                    ctx.strokeStyle = BLACK;
+                    ctx.strokeRect(pos.x * GRID_SIZE, pos.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+                });
+            }
+        }
+
+        // --- SnakeO1, SnakeO2, SnakeO3 (Learning Snakes) ---
+        // These will be more complex due to AI and mutation.
+        // Base class for learning snakes
+        class LearningSnake extends SnakeO {
+            constructor(snake_id, start_position, start_direction, color, global_best_params, name) {
+                super(snake_id, start_position, start_direction, color);
+                this.name = name;
+                this.length = 3; // Learning snakes start smaller
+
+                this.food_weight = global_best_params.food_weight;
+                this.safety_weight = global_best_params.safety_weight;
+                this.look_ahead = global_best_params.look_ahead;
+                this.aggression = global_best_params.aggression;
+
+                this.best_score_personal = global_best_params.score; // Personal best for this instance/generation
+                this.best_food_weight = this.food_weight;
+                this.best_safety_weight = this.safety_weight;
+                this.best_look_ahead = this.look_ahead;
+                this.best_aggression = this.aggression;
+
+                this.mutation_rate = 0.1;
+                this.aggressive_mutation = false;
+            }
+
+            // Override reset for learning behavior
+            reset(global_best_ref) { // Pass the global_best object by reference
+                // Default start positions for learning snakes
+                if (this.snake_id === 1) this.positions = [{ x: Math.floor(2 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }];
+                else if (this.snake_id === 2) this.positions = [{ x: Math.floor(3 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }];
+                else if (this.snake_id === 3) this.positions = [{ x: Math.floor(4 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }];
+                
+                this.direction = (this.snake_id === 1) ? RIGHT : LEFT;
+                this.length = 3;
+                this.alive = true;
+
+                if (this.score > this.best_score_personal) {
+                    this.best_score_personal = this.score;
+                    this.best_food_weight = this.food_weight;
+                    this.best_safety_weight = this.safety_weight;
+                    this.best_look_ahead = this.look_ahead;
+                    this.best_aggression = this.aggression;
+                    this.aggressive_mutation = false;
+
+                    // Update global best for this snake type if personal best is higher
+                    if (this.score > global_best_ref.score) {
+                        global_best_ref.score = this.score;
+                        global_best_ref.food_weight = this.food_weight;
+                        global_best_ref.safety_weight = this.safety_weight;
+                        global_best_ref.look_ahead = this.look_ahead;
+                        global_best_ref.aggression = this.aggression;
+                    }
+                     // Check if this is the best overall
+                    if (this.score > best_snake_overall.score) {
+                        best_snake_overall.snake = `Snake${this.name}`; // e.g. SnakeO1
+                        best_snake_overall.score = this.score;
+                        best_snake_overall.food_weight = this.food_weight;
+                        best_snake_overall.safety_weight = this.safety_weight;
+                        best_snake_overall.look_ahead = this.look_ahead;
+                        best_snake_overall.aggression = this.aggression;
+                    }
+
+                } else { // Score was not better, revert to personal best and mutate more
+                    this.food_weight = this.best_food_weight;
+                    this.safety_weight = this.best_safety_weight;
+                    this.look_ahead = this.best_look_ahead;
+                    this.aggression = this.best_aggression;
+                    this.aggressive_mutation = true;
+                }
+                this.mutate_parameters();
+                // Score is not reset to 0 for learning snakes, it's cumulative for their "life"
+            }
+
+            mutate_parameters() {
+                const rate = this.mutation_rate * (this.aggressive_mutation ? 2 : 1);
+                this.food_weight = Math.max(0.1, Math.min(5.0, this.food_weight + randomUniform(-rate, rate)));
+                this.safety_weight = Math.max(0.1, Math.min(5.0, this.safety_weight + randomUniform(-rate, rate)));
+                this.aggression = Math.max(0.0, Math.min(2.0, this.aggression + randomUniform(-rate, rate)));
+                this.look_ahead = Math.max(1, Math.min(10, this.look_ahead + randomChoice([-1, 0, 1])));
+            }
+
+            // Generic AI move for learning snakes (O1, O2, O3 have slight variations)
+            ai_move(food_positions, other_snakes_positions, other_snakes_heads) {
+                if (!this.alive || this.move_cooldown > 0) return;
+
+                const head = this.get_head_position();
+                const scores = {}; // Store as { direction: { total: score, safety: safety_val } }
+
+                DIRECTIONS.forEach(direction => {
+                    if (direction.x === -this.direction.x && direction.y === -this.direction.y) {
+                        return; // Skip reverse
+                    }
+
+                    let is_safe_move = true;
+                    let future_pos = { ...head }; // shallow copy
+
+                    for (let step = 0; step < this.look_ahead; step++) {
+                        future_pos.x = (future_pos.x + direction.x + GRID_WIDTH) % GRID_WIDTH;
+                        future_pos.y = (future_pos.y + direction.y + GRID_HEIGHT) % GRID_HEIGHT;
+
+                        // Check self collision in future path
+                        for (let i = 0; i < this.positions.length; i++) { // Check entire body, not just [1:]
+                            if (this.positions[i].x === future_pos.x && this.positions[i].y === future_pos.y) {
+                                is_safe_move = false; break;
+                            }
+                        }
+                        if (!is_safe_move) break;
+                        
+                        // Check collision with other snakes in immediate next step (for O3) or full path
+                        // O3 specific: (step == 0 && future_pos in other_snakes_positions)
+                        // General: future_pos in other_snakes_positions
+                        // For simplicity, let's use the general check for all learning snakes here
+                        // and then specialize if needed.
+                        if (this.name === "O3" && step === 0) { // O3 specific check
+                             for (const osp of other_snakes_positions) {
+                                if (osp.x === future_pos.x && osp.y === future_pos.y) {
+                                    is_safe_move = false; break;
+                                }
+                            }
+                        } else if (this.name !== "O3") { // O1, O2 check full path
+                            for (const osp of other_snakes_positions) {
+                                if (osp.x === future_pos.x && osp.y === future_pos.y) {
+                                    is_safe_move = false; break;
+                                }
+                            }
+                        }
+                        if (!is_safe_move) break;
+                    }
+                    const safety_score = is_safe_move ? 1 : 0;
+
+                    const new_head = {
+                        x: (head.x + direction.x + GRID_WIDTH) % GRID_WIDTH,
+                        y: (head.y + direction.y + GRID_HEIGHT) % GRID_HEIGHT
+                    };
+
+                    let food_benefit = 0;
+                    if (food_positions.length > 0) {
+                        const current_food_dist = Math.min(...food_positions.map(f => Math.abs(head.x - f.x) + Math.abs(head.y - f.y)));
+                        const new_food_dist = Math.min(...food_positions.map(f => Math.abs(new_head.x - f.x) + Math.abs(new_head.y - f.y)));
+                        food_benefit = current_food_dist - new_food_dist;
+                    }
+
+                    let aggression_score = 0;
+                    if (other_snakes_heads.length > 0) {
+                        const current_enemy_dist = Math.min(...other_snakes_heads.map(h => Math.abs(head.x - h.x) + Math.abs(head.y - h.y)));
+                        const new_enemy_dist = Math.min(...other_snakes_heads.map(h => Math.abs(new_head.x - h.x) + Math.abs(new_head.y - h.y)));
+                        aggression_score = (current_enemy_dist - new_enemy_dist) * this.aggression;
+                    }
+                    
+                    let hunger_modifier = 1;
+                    if (this.name === "O3" && hasattr(this, 'hunger')) { // hasattr equivalent
+                        hunger_modifier = 1 + (this.hunger * 0.005);
+                    }
+
+
+                    scores[directionKey(direction)] = { // Use a string key for direction object
+                        total: (food_benefit * this.food_weight * hunger_modifier) + (safety_score * this.safety_weight) + aggression_score,
+                        safety: safety_score,
+                        dir: direction // Keep the direction object
+                    };
+                });
+                
+                const valid_moves = Object.values(scores);
+                if (valid_moves.length > 0) {
+                    let best_move_data;
+                    if (this.name === "O3") { // O3 chooses randomly among best scores
+                        const max_score_val = Math.max(...valid_moves.map(m => m.total));
+                        const best_options = valid_moves.filter(m => m.total === max_score_val);
+                        best_move_data = randomChoice(best_options);
+                    } else { // O1, O2 pick the single best
+                        best_move_data = valid_moves.reduce((best, current) => (current.total > best.total ? current : best));
+                    }
+                    this.direction = best_move_data.dir;
+                    if (hasattr(this, 'last_move_safety')) this.last_move_safety = best_move_data.safety;
+                } else {
+                    // Fallback: try to move forward if possible, else random non-reversing
+                    const forward = this.direction;
+                    const new_head_forward = {
+                        x: (head.x + forward.x + GRID_WIDTH) % GRID_WIDTH,
+                        y: (head.y + forward.y + GRID_HEIGHT) % GRID_HEIGHT
+                    };
+                    let can_move_forward = true;
+                    // Simplified safety check for fallback
+                    for (let i = 0; i < this.positions.length; i++) {
+                        if (this.positions[i].x === new_head_forward.x && this.positions[i].y === new_head_forward.y) {
+                            can_move_forward = false; break;
+                        }
+                    }
+                    if (can_move_forward) {
+                         for (const osp of other_snakes_positions) {
+                            if (osp.x === new_head_forward.x && osp.y === new_head_forward.y) {
+                                can_move_forward = false; break;
+                            }
+                        }
+                    }
+
+                    if (!can_move_forward) {
+                        const nonReversing = DIRECTIONS.filter(d => d.x !== -this.direction.x || d.y !== -this.direction.y);
+                        if (nonReversing.length > 0) this.direction = randomChoice(nonReversing);
+                        else this.direction = randomChoice(DIRECTIONS); // Absolute last resort
+                    }
+                    // else keep current direction if it's safe enough
+                }
+                this.move_cooldown = 1; // Or adjust based on desired speed
+            }
+        }
+        
+        function directionKey(dir) { return `${dir.x},${dir.y}`; }
+        function hasattr(obj, prop) { return typeof obj[prop] !== 'undefined'; }
+
+
+        class SnakeO1 extends LearningSnake {
+            constructor(snake_id, start_position, start_direction, color) {
+                super(snake_id, start_position, start_direction, color, global_best_o1, "O1");
+            }
+            reset() { super.reset(global_best_o1); }
+        }
+
+        class SnakeO2 extends LearningSnake {
+            constructor(snake_id, start_position, start_direction, color) {
+                super(snake_id, start_position, start_direction, color, global_best_o2, "O2");
+                this.last_move_safety = 1;
+                this.last_collision_type = null; // 'self' or 'other'
+            }
+            update(other_snakes_positions) { // Override to track collision type
+                const head = this.get_head_position();
+                const new_position = {
+                    x: (head.x + this.direction.x + GRID_WIDTH) % GRID_WIDTH,
+                    y: (head.y + this.direction.y + GRID_HEIGHT) % GRID_HEIGHT
+                };
+                
+                // Check self collision
+                for (let i = 1; i < this.positions.length; i++) {
+                    if (this.positions[i].x === new_position.x && this.positions[i].y === new_position.y) {
+                        this.last_collision_type = 'self'; // Track for O2/O3 logic
+                        // ... rest of collision logic from SnakeO.update
+                        const food_count = Math.max(Math.floor(this.length / 2), 1);
+                        let food_to_spawn = [];
+                        for (let k = 0; k < food_count; k++) {
+                            if (k < this.positions.length) food_to_spawn.push({...this.positions[k]});
+                        }
+                        this.alive = false;
+                        this.respawn_counter = RESPAWN_TIME;
+                        this.score -= 10;
+                        return food_to_spawn;
+                    }
+                }
+                // Check collision with other snakes
+                for (const pos of other_snakes_positions) {
+                    if (pos.x === new_position.x && pos.y === new_position.y) {
+                        this.last_collision_type = 'other'; // Track for O2/O3 logic
+                        // ... rest of collision logic from SnakeO.update
+                        const food_count = Math.max(Math.floor(this.length / 2), 1);
+                        let food_to_spawn = [];
+                        for (let k = 0; k < food_count; k++) {
+                            if (k < this.positions.length) food_to_spawn.push({...this.positions[k]});
+                        }
+                        this.alive = false;
+                        this.respawn_counter = RESPAWN_TIME;
+                        this.score -= 10;
+                        return food_to_spawn;
+                    }
+                }
+                return super.update(other_snakes_positions); // Call base if no collision detected here
+            }
+            reset() {
+                super.reset(global_best_o2); // Calls LearningSnake.reset
+                // O2 specific reset logic AFTER super.reset() which handles mutation based on score
+                if (this.last_move_safety === 0) { // If last move was unsafe
+                    this.safety_weight += this.mutation_rate;
+                    this.food_weight -= this.mutation_rate;
+                }
+                if (this.last_collision_type === 'other') {
+                    this.look_ahead = Math.min(this.look_ahead + 1, 10);
+                } else if (this.last_collision_type === 'self') {
+                    this.safety_weight += this.mutation_rate;
+                }
+                this.food_weight = Math.max(0.1, Math.min(5.0, this.food_weight));
+                this.safety_weight = Math.max(0.1, Math.min(5.0, this.safety_weight));
+                this.last_collision_type = null; // Reset for next life
+            }
+        }
+
+        class SnakeO3 extends LearningSnake {
+            constructor(snake_id, start_position, start_direction, color) {
+                super(snake_id, start_position, start_direction, color, global_best_o3, "O3");
+                this.last_move_safety = 1;
+                this.last_collision_type = null;
+                this.hunger = 0;
+            }
+            update(other_snakes_positions) { // Override to track collision type & hunger
+                 const head = this.get_head_position();
+                const new_position = {
+                    x: (head.x + this.direction.x + GRID_WIDTH) % GRID_WIDTH,
+                    y: (head.y + this.direction.y + GRID_HEIGHT) % GRID_HEIGHT
+                };
+                
+                for (let i = 1; i < this.positions.length; i++) {
+                    if (this.positions[i].x === new_position.x && this.positions[i].y === new_position.y) {
+                        this.last_collision_type = 'self';
+                        const food_count = Math.max(Math.floor(this.length / 2), 1);
+                        let food_to_spawn = [];
+                        for (let k = 0; k < food_count; k++) {
+                            if (k < this.positions.length) food_to_spawn.push({...this.positions[k]});
+                        }
+                        this.alive = false;
+                        this.respawn_counter = RESPAWN_TIME;
+                        this.score -= 10;
+                        return food_to_spawn;
+                    }
+                }
+                for (const pos of other_snakes_positions) {
+                    if (pos.x === new_position.x && pos.y === new_position.y) {
+                        this.last_collision_type = 'other';
+                        const food_count = Math.max(Math.floor(this.length / 2), 1);
+                        let food_to_spawn = [];
+                        for (let k = 0; k < food_count; k++) {
+                            if (k < this.positions.length) food_to_spawn.push({...this.positions[k]});
+                        }
+                        this.alive = false;
+                        this.respawn_counter = RESPAWN_TIME;
+                        this.score -= 10;
+                        return food_to_spawn;
+                    }
+                }
+
+                const foodSpawned = super.update(other_snakes_positions);
+                if (this.alive) this.hunger++; // Increment hunger if alive and moved
+                return foodSpawned;
+            }
+            reset() {
+                super.reset(global_best_o3);
+                this.hunger = 0;
+                 // O3 specific reset logic (same as O2)
+                if (this.last_move_safety === 0) {
+                    this.safety_weight += this.mutation_rate;
+                    this.food_weight -= this.mutation_rate;
+                }
+                if (this.last_collision_type === 'other') {
+                    this.look_ahead = Math.min(this.look_ahead + 1, 10);
+                } else if (this.last_collision_type === 'self') {
+                    this.safety_weight += this.mutation_rate;
+                }
+                this.food_weight = Math.max(0.1, Math.min(5.0, this.food_weight));
+                this.safety_weight = Math.max(0.1, Math.min(5.0, this.safety_weight));
+                this.last_collision_type = null;
+            }
+        }
+
+
+        class Food {
+            constructor(position = null) {
+                this.color = RED;
+                this.position = position ? position : this.randomize_position();
+            }
+
+            randomize_position() {
+                return {
+                    x: randomInt(0, GRID_WIDTH - 1),
+                    y: randomInt(0, GRID_HEIGHT - 1)
+                };
+            }
+
+            render(ctx) {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.position.x * GRID_SIZE, this.position.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+                ctx.strokeStyle = BLACK;
+                ctx.strokeRect(this.position.x * GRID_SIZE, this.position.y * GRID_SIZE, GRID_SIZE, GRID_SIZE);
+            }
+        }
+
+        class Game {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.snakes = [
+                    new SnakeO(0, { x: Math.floor(GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }, RIGHT, SNAKE1_COLOR),
+                    new SnakeO1(1, { x: Math.floor(2 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }, RIGHT, SNAKE2_COLOR),
+                    new SnakeO2(2, { x: Math.floor(3 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }, LEFT, SNAKE3_COLOR),
+                    new SnakeO3(3, { x: Math.floor(4 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }, LEFT, SNAKE4_COLOR)
+                ];
+                this.foods = [];
+                this.initialize_food();
+                this.lastFrameTime = 0;
+                this.fps = 0;
+            }
+
+            initialize_food() {
+                for (let i = 0; i < 8; i++) {
+                    this.spawn_food();
+                }
+            }
+
+            spawn_food(position = null) {
+                let food = new Food(position);
+                const all_snake_positions = this.snakes.reduce((acc, snake) => {
+                    if (snake.alive) return acc.concat(snake.positions);
+                    return acc;
+                }, []);
+
+                let is_colliding = true;
+                while(is_colliding) {
+                    is_colliding = false;
+                    for(const sp of all_snake_positions) {
+                        if (sp.x === food.position.x && sp.y === food.position.y) {
+                            is_colliding = true;
+                            food.position = food.randomize_position();
+                            break;
+                        }
+                    }
+                     for(const other_food of this.foods) { // Avoid spawning food on existing food
+                        if (other_food.position.x === food.position.x && other_food.position.y === food.position.y) {
+                            is_colliding = true;
+                            food.position = food.randomize_position();
+                            break;
+                        }
+                    }
+                }
+                this.foods.push(food);
+            }
+
+            update() {
+                for (let i = 0; i < this.snakes.length; i++) {
+                    const snake = this.snakes[i];
+                    const other_snakes_positions = this.snakes.reduce((acc, s, index) => {
+                        if (index !== i && s.alive) return acc.concat(s.positions);
+                        return acc;
+                    }, []);
+                    
+                    const food_spawned_from_death = snake.update(other_snakes_positions);
+                    food_spawned_from_death.forEach(pos => this.spawn_food(pos));
+                }
+
+                for (const snake of this.snakes) {
+                    if (!snake.alive) continue;
+                    const head = snake.get_head_position();
+                    for (let i = this.foods.length - 1; i >= 0; i--) {
+                        const food = this.foods[i];
+                        if (head.x === food.position.x && head.y === food.position.y) {
+                            snake.length++;
+                            snake.score++;
+                            if (hasattr(snake, 'hunger')) snake.hunger = 0;
+                            this.foods.splice(i, 1);
+                            // No need to spawn new food here, it's handled by the check below
+                        }
+                    }
+                }
+
+                while (this.foods.length < 8) {
+                    this.spawn_food();
+                }
+            }
+
+            move_ai() {
+                const food_positions = this.foods.map(f => f.position);
+                const all_alive_heads = this.snakes.filter(s => s.alive).map(s => s.get_head_position());
+
+                for (let i = 0; i < this.snakes.length; i++) {
+                    const snake = this.snakes[i];
+                    if (!snake.alive) continue;
+
+                    const other_snakes_positions = this.snakes.reduce((acc, s, index) => {
+                        if (index !== i && s.alive) return acc.concat(s.positions);
+                        return acc;
+                    }, []);
+                    const other_snakes_heads = all_alive_heads.filter((h, index) => {
+                        // This is a bit tricky. We need to map all_alive_heads back to original snake indices
+                        // or just filter based on not being the current snake's head.
+                        const current_snake_head = snake.get_head_position();
+                        return !(h.x === current_snake_head.x && h.y === current_snake_head.y);
+                    });
+                    
+                    snake.ai_move(food_positions, other_snakes_positions, other_snakes_heads);
+                }
+            }
+
+            render_grid() {
+                this.ctx.strokeStyle = GRID_COLOR;
+                this.ctx.lineWidth = 1;
+                for (let x = 0; x <= SCREEN_WIDTH; x += GRID_SIZE) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, 0);
+                    this.ctx.lineTo(x, SCREEN_HEIGHT);
+                    this.ctx.stroke();
+                }
+                for (let y = 0; y <= SCREEN_HEIGHT; y += GRID_SIZE) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(0, y);
+                    this.ctx.lineTo(SCREEN_WIDTH, y);
+                    this.ctx.stroke();
+                }
+            }
+            
+            render_text(text, x, y, color = WHITE, size = 18, font = "Arial") {
+                this.ctx.fillStyle = color;
+                this.ctx.font = `${size}px ${font}`;
+                this.ctx.fillText(text, x, y);
+            }
+
+            render(timestamp) {
+                // Clear canvas
+                this.ctx.fillStyle = BLACK;
+                this.ctx.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
+                this.render_grid();
+
+                this.foods.forEach(food => food.render(this.ctx));
+                this.snakes.forEach(snake => snake.render(this.ctx));
+
+                // --- Text Displays (similar to Pygame version) ---
+                // Title
+                this.ctx.textAlign = "center";
+                this.render_text('4 AI Snake Competition', SCREEN_WIDTH / 2, 30, WHITE, 24);
+                this.ctx.textAlign = "left"; // Reset
+
+                // FPS
+                if (this.lastFrameTime > 0) {
+                    const deltaTime = timestamp - this.lastFrameTime;
+                    this.fps = Math.round(1000 / deltaTime);
+                }
+                this.lastFrameTime = timestamp;
+                this.render_text(`FPS: ${this.fps}`, SCREEN_WIDTH - 100, 25, WHITE, 18);
+
+                // Scores
+                this.ctx.fillStyle = 'rgba(0,0,0,0.5)'; // Semi-transparent background for scores
+                this.ctx.fillRect(5, 5, 150, 85);
+                this.snakes.forEach((snake, i) => {
+                    const names = ['O', 'O1', 'O2', 'O3'];
+                    this.render_text(`${names[i]}: ${snake.score}`, 10, 25 + i * 20, snake.color, 18);
+                });
+
+                // Global best parameters
+                this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                this.ctx.fillRect(SCREEN_WIDTH - 305, SCREEN_HEIGHT - 95, 300, 90);
+                const best_params_texts = [
+                    `O1 Best: S=${global_best_o1.score}, F=${global_best_o1.food_weight.toFixed(2)}, S=${global_best_o1.safety_weight.toFixed(2)}, L=${global_best_o1.look_ahead}, A=${global_best_o1.aggression.toFixed(2)}`,
+                    `O2 Best: S=${global_best_o2.score}, F=${global_best_o2.food_weight.toFixed(2)}, S=${global_best_o2.safety_weight.toFixed(2)}, L=${global_best_o2.look_ahead}, A=${global_best_o2.aggression.toFixed(2)}`,
+                    `O3 Best: S=${global_best_o3.score}, F=${global_best_o3.food_weight.toFixed(2)}, S=${global_best_o3.safety_weight.toFixed(2)}, L=${global_best_o3.look_ahead}, A=${global_best_o3.aggression.toFixed(2)}`
+                ];
+                best_params_texts.forEach((text, i) => {
+                    this.render_text(text, SCREEN_WIDTH - 300, SCREEN_HEIGHT - 85 + i * 18, WHITE, 14);
+                });
+                
+                // Current parameters for learning snakes
+                const current_params_texts = [
+                    `O1 Now: F=${this.snakes[1].food_weight.toFixed(2)}, S=${this.snakes[1].safety_weight.toFixed(2)}, L=${this.snakes[1].look_ahead}, A=${this.snakes[1].aggression.toFixed(2)}`,
+                    `O2 Now: F=${this.snakes[2].food_weight.toFixed(2)}, S=${this.snakes[2].safety_weight.toFixed(2)}, L=${this.snakes[2].look_ahead}, A=${this.snakes[2].aggression.toFixed(2)}`,
+                    `O3 Now: F=${this.snakes[3].food_weight.toFixed(2)}, S=${this.snakes[3].safety_weight.toFixed(2)}, L=${this.snakes[3].look_ahead}, A=${this.snakes[3].aggression.toFixed(2)}`
+                ];
+                 current_params_texts.forEach((text, i) => {
+                    this.render_text(text, SCREEN_WIDTH - 300, SCREEN_HEIGHT - (85 - 3*18) + i * 18, WHITE, 14);
+                });
+
+
+                // Overall best snake
+                if (best_snake_overall.snake) {
+                    this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                    this.ctx.fillRect(5, SCREEN_HEIGHT - 55, 450, 50);
+                    const overall_text = `Best Overall: ${best_snake_overall.snake.replace('Snake', '')} (S=${best_snake_overall.score}, F=${best_snake_overall.food_weight.toFixed(2)}, S=${best_snake_overall.safety_weight.toFixed(2)}, L=${best_snake_overall.look_ahead}, A=${best_snake_overall.aggression.toFixed(2)})`;
+                    this.render_text(overall_text, 10, SCREEN_HEIGHT - 35, WHITE, 14);
+                }
+
+                // Death messages
+                this.ctx.fillStyle = 'rgba(0,0,0,0.5)';
+                this.ctx.fillRect(SCREEN_WIDTH - 155, 45, 150, 180); // Adjusted size
+                this.snakes.forEach((snake, i) => {
+                    const names = ['O', 'O1', 'O2', 'O3'];
+                    if (!snake.alive) {
+                        this.render_text(`${names[i]} died!`, SCREEN_WIDTH - 150, 60 + i * 40, RED, 14);
+                        const respawnTimeSec = Math.ceil(snake.respawn_counter / (1000 / gameSpeed)); // Assuming gameSpeed is target FPS
+                        this.render_text(`Respawn: ${respawnTimeSec}s`, SCREEN_WIDTH - 150, 78 + i * 40, WHITE, 14);
+                    }
+                });
+                
+                // Health Bar for SnakeO3 (Hunger)
+                const snakeO3 = this.snakes[3];
+                if (snakeO3.alive) {
+                    this.render_text('AI O3 Health', SCREEN_WIDTH - 150, 240, WHITE, 14);
+                    const max_hunger = 1000; // Arbitrary max for visualization
+                    const health_percentage = Math.max(0, 1 - (snakeO3.hunger / max_hunger));
+                    const health_bar_width = 100 * health_percentage;
+                    
+                    this.ctx.fillStyle = RED; // Background of bar (empty part)
+                    this.ctx.fillRect(SCREEN_WIDTH - 150, 250, 100, 10);
+                    this.ctx.fillStyle = 'rgb(0,255,0)'; // Green part
+                    this.ctx.fillRect(SCREEN_WIDTH - 150, 250, health_bar_width, 10);
+                    this.ctx.strokeStyle = WHITE;
+                    this.ctx.strokeRect(SCREEN_WIDTH - 150, 250, 100, 10);
+                }
+            }
+
+            get_respawn_time(snake) { // Not directly used in render, but was in python
+                return snake.alive ? 0 : snake.respawn_counter;
+            }
+        }
+
+        // --- Game Setup and Loop ---
+        const canvas = document.getElementById('gameCanvas');
+        canvas.width = SCREEN_WIDTH;
+        canvas.height = SCREEN_HEIGHT;
+        
+        const game = new Game(canvas);
+        let gameSpeed = 10; // Target FPS, effectively. Interval will be 1000/gameSpeed.
+        let lastTick = 0;
+
+        function gameLoop(timestamp) {
+            requestAnimationFrame(gameLoop);
+
+            const now = timestamp;
+            const elapsed = now - lastTick;
+
+            // Control game speed
+            if (elapsed > (1000 / gameSpeed)) {
+                lastTick = now - (elapsed % (1000 / gameSpeed)); // Adjust lastTick
+
+                game.move_ai();
+                game.update();
+            }
+            // Render can happen more frequently or tied to game update
+            game.render(timestamp); // Pass timestamp for FPS calculation
+        }
+
+        // --- UI for Parameters ---
+        const infoButton = document.getElementById('infoButton');
+        const paramsPanel = document.getElementById('paramsPanel');
+        const applyParamsButton = document.getElementById('applyParamsButton');
+        const closeParamsButton = document.getElementById('closeParamsButton');
+        const snakeParamsFormsDiv = document.getElementById('snakeParamsForms');
+
+        function populateParamsPanel() {
+            snakeParamsFormsDiv.innerHTML = ''; // Clear previous
+            // Only for learning snakes (O1, O2, O3 - indices 1, 2, 3)
+            const learningSnakes = [game.snakes[1], game.snakes[2], game.snakes[3]];
+            learningSnakes.forEach((snake, index) => {
+                if (!snake) return; // Should not happen with current setup
+
+                const snakeDiv = document.createElement('div');
+                snakeDiv.className = 'snake-params';
+                snakeDiv.innerHTML = `<h4>Snake ${snake.name} (Current)</h4>`;
+
+                const params = ['food_weight', 'safety_weight', 'look_ahead', 'aggression'];
+                params.forEach(param => {
+                    const label = document.createElement('label');
+                    label.textContent = `${param.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}:`;
+                    const input = document.createElement('input');
+                    input.type = 'number';
+                    input.id = `snake${snake.snake_id}_${param}`; // Use snake_id for unique IDs
+                    input.value = snake[param].toFixed(param === 'look_ahead' ? 0 : 2);
+                    // Add step for better UX if desired, e.g., input.step = "0.01";
+                    if (param === 'look_ahead') input.step = "1";
+                    else input.step = "0.01";
+
+                    label.appendChild(input);
+                    snakeDiv.appendChild(label);
+                });
+                snakeParamsFormsDiv.appendChild(snakeDiv);
+            });
+        }
+
+        infoButton.addEventListener('click', () => {
+            if (paramsPanel.style.display === 'none' || paramsPanel.style.display === '') {
+                populateParamsPanel();
+                paramsPanel.style.display = 'block';
+            } else {
+                paramsPanel.style.display = 'none';
+            }
+        });
+
+        closeParamsButton.addEventListener('click', () => {
+            paramsPanel.style.display = 'none';
+        });
+
+        applyParamsButton.addEventListener('click', () => {
+            const learningSnakes = [game.snakes[1], game.snakes[2], game.snakes[3]];
+            learningSnakes.forEach((snake) => {
+                if (!snake) return;
+                const paramsToUpdate = ['food_weight', 'safety_weight', 'look_ahead', 'aggression'];
+                paramsToUpdate.forEach(param => {
+                    const inputElement = document.getElementById(`snake${snake.snake_id}_${param}`);
+                    if (inputElement) {
+                        let value = parseFloat(inputElement.value);
+                        if (param === 'look_ahead') value = parseInt(inputElement.value);
+
+                        if (!isNaN(value)) {
+                            // Apply clamps similar to mutation
+                            if (param === 'food_weight' || param === 'safety_weight') value = Math.max(0.1, Math.min(5.0, value));
+                            if (param === 'aggression') value = Math.max(0.0, Math.min(2.0, value));
+                            if (param === 'look_ahead') value = Math.max(1, Math.min(10, value));
+                            
+                            snake[param] = value;
+                            // Also update the snake's "best" parameters to this manual setting
+                            // so it doesn't immediately revert if it dies without improving.
+                            snake[`best_${param}`] = value; 
+                        }
+                    }
+                });
+            });
+            // Optionally, provide feedback that parameters were applied
+            console.log("Parameters applied manually.");
+            // paramsPanel.style.display = 'none'; // Optionally close panel after applying
+        });
+
+
+        // Start the game
+        requestAnimationFrame(gameLoop);
+
+    </script>
+</body>
+</html>
