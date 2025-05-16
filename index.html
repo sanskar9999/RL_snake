@@ -197,6 +197,7 @@
 
 
         const RESPAWN_TIME = 100; // In frames
+        const TARGET_FOOD_COUNT = 8; // Target number of food items
 
         // Global best parameters (can be updated by the game)
         let global_best_o1 = { score: 78, food_weight: 0.84, safety_weight: 0.47, look_ahead: 3, aggression: 0.50 };
@@ -217,6 +218,10 @@
         function randomChoice(arr) {
             return arr[Math.floor(Math.random() * arr.length)];
         }
+
+        function directionKey(dir) { return `${dir.x},${dir.y}`; }
+        function hasattr(obj, prop) { return typeof obj[prop] !== 'undefined'; }
+
 
         // --- Classes ---
 
@@ -246,7 +251,7 @@
                             this.reset();
                         }
                     }
-                    return [];
+                    return []; // Return empty array if not alive
                 }
 
                 if (this.move_cooldown > 0) {
@@ -296,7 +301,7 @@
                 if (this.positions.length > this.length) {
                     this.positions.pop();
                 }
-                return [];
+                return []; // Return empty array if no death
             }
 
             reset() {
@@ -365,7 +370,7 @@
                         y: (head.y + direction.y + GRID_HEIGHT) % GRID_HEIGHT
                     };
                     let is_safe = true;
-                    for (let i = 1; i < this.positions.length; i++) {
+                    for (let i = 0; i < this.positions.length; i++) { // Check entire body, not just [1:]
                         if (this.positions[i].x === new_pos.x && this.positions[i].y === new_pos.y) {
                             is_safe = false; break;
                         }
@@ -446,7 +451,7 @@
                 if (this.snake_id === 1) this.positions = [{ x: Math.floor(2 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }];
                 else if (this.snake_id === 2) this.positions = [{ x: Math.floor(3 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }];
                 else if (this.snake_id === 3) this.positions = [{ x: Math.floor(4 * GRID_WIDTH / 5), y: Math.floor(GRID_HEIGHT / 2) }];
-                
+
                 this.direction = (this.snake_id === 1) ? RIGHT : LEFT;
                 this.length = 3;
                 this.alive = true;
@@ -522,12 +527,8 @@
                             }
                         }
                         if (!is_safe_move) break;
-                        
+
                         // Check collision with other snakes in immediate next step (for O3) or full path
-                        // O3 specific: (step == 0 && future_pos in other_snakes_positions)
-                        // General: future_pos in other_snakes_positions
-                        // For simplicity, let's use the general check for all learning snakes here
-                        // and then specialize if needed.
                         if (this.name === "O3" && step === 0) { // O3 specific check
                              for (const osp of other_snakes_positions) {
                                 if (osp.x === future_pos.x && osp.y === future_pos.y) {
@@ -563,7 +564,7 @@
                         const new_enemy_dist = Math.min(...other_snakes_heads.map(h => Math.abs(new_head.x - h.x) + Math.abs(new_head.y - h.y)));
                         aggression_score = (current_enemy_dist - new_enemy_dist) * this.aggression;
                     }
-                    
+
                     let hunger_modifier = 1;
                     if (this.name === "O3" && hasattr(this, 'hunger')) { // hasattr equivalent
                         hunger_modifier = 1 + (this.hunger * 0.005);
@@ -576,7 +577,7 @@
                         dir: direction // Keep the direction object
                     };
                 });
-                
+
                 const valid_moves = Object.values(scores);
                 if (valid_moves.length > 0) {
                     let best_move_data;
@@ -621,9 +622,6 @@
                 this.move_cooldown = 1; // Or adjust based on desired speed
             }
         }
-        
-        function directionKey(dir) { return `${dir.x},${dir.y}`; }
-        function hasattr(obj, prop) { return typeof obj[prop] !== 'undefined'; }
 
 
         class SnakeO1 extends LearningSnake {
@@ -645,7 +643,7 @@
                     x: (head.x + this.direction.x + GRID_WIDTH) % GRID_WIDTH,
                     y: (head.y + this.direction.y + GRID_HEIGHT) % GRID_HEIGHT
                 };
-                
+
                 // Check self collision
                 for (let i = 1; i < this.positions.length; i++) {
                     if (this.positions[i].x === new_position.x && this.positions[i].y === new_position.y) {
@@ -711,7 +709,7 @@
                     x: (head.x + this.direction.x + GRID_WIDTH) % GRID_WIDTH,
                     y: (head.y + this.direction.y + GRID_HEIGHT) % GRID_HEIGHT
                 };
-                
+
                 for (let i = 1; i < this.positions.length; i++) {
                     if (this.positions[i].x === new_position.x && this.positions[i].y === new_position.y) {
                         this.last_collision_type = 'self';
@@ -803,7 +801,8 @@
             }
 
             initialize_food() {
-                for (let i = 0; i < 8; i++) {
+                // Spawn initial food up to the target count
+                for (let i = 0; i < TARGET_FOOD_COUNT; i++) {
                     this.spawn_food();
                 }
             }
@@ -816,38 +815,61 @@
                 }, []);
 
                 let is_colliding = true;
-                while(is_colliding) {
+                let attempts = 0;
+                const max_attempts = 100; // Prevent infinite loop if grid is full
+
+                while(is_colliding && attempts < max_attempts) {
                     is_colliding = false;
+                    // Check collision with snakes
                     for(const sp of all_snake_positions) {
                         if (sp.x === food.position.x && sp.y === food.position.y) {
                             is_colliding = true;
-                            food.position = food.randomize_position();
+                            food.position = food.randomize_position(); // Try a new position
                             break;
                         }
                     }
-                     for(const other_food of this.foods) { // Avoid spawning food on existing food
-                        if (other_food.position.x === food.position.x && other_food.position.y === food.position.y) {
-                            is_colliding = true;
-                            food.position = food.randomize_position();
-                            break;
+                     // Check collision with existing food
+                    if (!is_colliding) {
+                        for(const other_food of this.foods) {
+                            if (other_food.position.x === food.position.x && other_food.position.y === food.position.y) {
+                                is_colliding = true;
+                                food.position = food.randomize_position(); // Try a new position
+                                break;
+                            }
                         }
                     }
+                    attempts++;
                 }
+
+                if (attempts === max_attempts) {
+                    console.warn("Could not find a valid position to spawn food after multiple attempts.");
+                    return false; // Indicate failure to spawn
+                }
+
                 this.foods.push(food);
+                return true; // Indicate success
             }
 
             update() {
+                // Update snakes and collect food spawned from death
+                let food_to_spawn_from_deaths = [];
                 for (let i = 0; i < this.snakes.length; i++) {
                     const snake = this.snakes[i];
                     const other_snakes_positions = this.snakes.reduce((acc, s, index) => {
                         if (index !== i && s.alive) return acc.concat(s.positions);
                         return acc;
                     }, []);
-                    
+
+                    // snake.update returns an array of positions where food should spawn
                     const food_spawned_from_death = snake.update(other_snakes_positions);
-                    food_spawned_from_death.forEach(pos => this.spawn_food(pos));
+                    food_to_spawn_from_deaths = food_to_spawn_from_deaths.concat(food_spawned_from_death);
                 }
 
+                // Add food from death *before* checking food count for replenishment
+                food_to_spawn_from_deaths.forEach(pos => this.spawn_food(pos));
+
+
+                // Handle food eating
                 for (const snake of this.snakes) {
                     if (!snake.alive) continue;
                     const head = snake.get_head_position();
@@ -858,14 +880,19 @@
                             snake.score++;
                             if (hasattr(snake, 'hunger')) snake.hunger = 0;
                             this.foods.splice(i, 1);
-                            // No need to spawn new food here, it's handled by the check below
+                            // Food is removed here when eaten
                         }
                     }
                 }
 
-                while (this.foods.length < 8) {
-                    this.spawn_food();
+                // --- MODIFIED FOOD REPLENISHMENT LOGIC ---
+                // Calculate how many food items are needed to reach the target (8)
+                const foodNeeded = TARGET_FOOD_COUNT - this.foods.length;
+                // Only spawn food if needed (i.e., if current count is less than TARGET_FOOD_COUNT)
+                for (let i = 0; i < foodNeeded; i++) {
+                     this.spawn_food(); // spawn_food now handles collision checks internally
                 }
+                // --- END MODIFIED LOGIC ---
             }
 
             move_ai() {
@@ -886,7 +913,7 @@
                         const current_snake_head = snake.get_head_position();
                         return !(h.x === current_snake_head.x && h.y === current_snake_head.y);
                     });
-                    
+
                     snake.ai_move(food_positions, other_snakes_positions, other_snakes_heads);
                 }
             }
@@ -907,7 +934,7 @@
                     this.ctx.stroke();
                 }
             }
-            
+
             render_text(text, x, y, color = WHITE, size = 18, font = "Arial") {
                 this.ctx.fillStyle = color;
                 this.ctx.font = `${size}px ${font}`;
@@ -957,7 +984,7 @@
                 best_params_texts.forEach((text, i) => {
                     this.render_text(text, SCREEN_WIDTH - 300, SCREEN_HEIGHT - 85 + i * 18, WHITE, 14);
                 });
-                
+
                 // Current parameters for learning snakes
                 const current_params_texts = [
                     `O1 Now: F=${this.snakes[1].food_weight.toFixed(2)}, S=${this.snakes[1].safety_weight.toFixed(2)}, L=${this.snakes[1].look_ahead}, A=${this.snakes[1].aggression.toFixed(2)}`,
@@ -984,11 +1011,12 @@
                     const names = ['O', 'O1', 'O2', 'O3'];
                     if (!snake.alive) {
                         this.render_text(`${names[i]} died!`, SCREEN_WIDTH - 150, 60 + i * 40, RED, 14);
-                        const respawnTimeSec = Math.ceil(snake.respawn_counter / (1000 / gameSpeed)); // Assuming gameSpeed is target FPS
+                        // Need gameSpeed to calculate seconds correctly
+                        const respawnTimeSec = Math.ceil(snake.respawn_counter / (1000 / gameSpeed));
                         this.render_text(`Respawn: ${respawnTimeSec}s`, SCREEN_WIDTH - 150, 78 + i * 40, WHITE, 14);
                     }
                 });
-                
+
                 // Health Bar for SnakeO3 (Hunger)
                 const snakeO3 = this.snakes[3];
                 if (snakeO3.alive) {
@@ -996,7 +1024,7 @@
                     const max_hunger = 1000; // Arbitrary max for visualization
                     const health_percentage = Math.max(0, 1 - (snakeO3.hunger / max_hunger));
                     const health_bar_width = 100 * health_percentage;
-                    
+
                     this.ctx.fillStyle = RED; // Background of bar (empty part)
                     this.ctx.fillRect(SCREEN_WIDTH - 150, 250, 100, 10);
                     this.ctx.fillStyle = 'rgb(0,255,0)'; // Green part
@@ -1015,7 +1043,7 @@
         const canvas = document.getElementById('gameCanvas');
         canvas.width = SCREEN_WIDTH;
         canvas.height = SCREEN_HEIGHT;
-        
+
         const game = new Game(canvas);
         let gameSpeed = 10; // Target FPS, effectively. Interval will be 1000/gameSpeed.
         let lastTick = 0;
@@ -1103,11 +1131,11 @@
                             if (param === 'food_weight' || param === 'safety_weight') value = Math.max(0.1, Math.min(5.0, value));
                             if (param === 'aggression') value = Math.max(0.0, Math.min(2.0, value));
                             if (param === 'look_ahead') value = Math.max(1, Math.min(10, value));
-                            
+
                             snake[param] = value;
                             // Also update the snake's "best" parameters to this manual setting
                             // so it doesn't immediately revert if it dies without improving.
-                            snake[`best_${param}`] = value; 
+                            snake[`best_${param}`] = value;
                         }
                     }
                 });
